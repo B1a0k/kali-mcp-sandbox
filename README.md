@@ -13,7 +13,7 @@ Windows requires hardware virtualization and the Windows Hypervisor Platform fea
 Install the host launcher from a reviewed release tag:
 
 ```sh
-python -m pip install "git+https://github.com/B1a0k/kali-mcp-sandbox.git@v0.1.0"
+python -m pip install "git+https://github.com/B1a0k/kali-mcp-sandbox.git@v0.1.1"
 kali-mcp-sandbox install
 kali-mcp-sandbox doctor
 ```
@@ -66,10 +66,10 @@ Changing image version, CPU, memory or network for an existing standalone worksp
 ## Build and verify
 
 ```sh
-docker build --build-arg KALI_BASE=kalilinux/kali-rolling@sha256:c717f201f29a7e0a9126c0d51bd08aa7194ac82f53c57314339182f92b0b1585 -t kali-mcp-sandbox:0.1.0-amd64 image
-python scripts/docker_smoke.py --image kali-mcp-sandbox:0.1.0-amd64
-docker save kali-mcp-sandbox:0.1.0-amd64 -o kali-core-amd64.tar
-python scripts/smoke.py --msb PATH_TO_MSB --firmware PATH_TO_LIBKRUNFW --image kali-core-amd64.tar --image-ref kali-mcp-sandbox:0.1.0-amd64
+docker build --build-arg KALI_BASE=kalilinux/kali-rolling@sha256:c717f201f29a7e0a9126c0d51bd08aa7194ac82f53c57314339182f92b0b1585 -t kali-mcp-sandbox:0.1.1-amd64 image
+python scripts/docker_smoke.py --image kali-mcp-sandbox:0.1.1-amd64
+docker save kali-mcp-sandbox:0.1.1-amd64 -o kali-core-amd64.tar
+python scripts/smoke.py --msb PATH_TO_MSB --firmware PATH_TO_LIBKRUNFW --image kali-core-amd64.tar --image-ref kali-mcp-sandbox:0.1.1-amd64
 ```
 
 The base is official Kali Linux, with a curated package layer and an adapted MCP service. The base digest and upstream MCP commit are pinned. Kali rolling package indexes still change: rebuildable source **does not imply bit-for-bit reproducibility**. Releases include exact archive digests and package versions.

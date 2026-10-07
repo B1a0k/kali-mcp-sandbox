@@ -10,7 +10,9 @@ RUN --mount=type=secret,id=apt_ca,target=/run/secrets/apt-ca,mode=0444 \
     && if [ -f /run/secrets/apt-ca ]; then printf 'Acquire::https::CaInfo "/run/secrets/apt-ca";\n' > /etc/apt/apt.conf.d/98kali-mcp-build-ca; fi \
     && printf 'deb %s kali-rolling main contrib non-free non-free-firmware\n' "$KALI_APT_MIRROR" > /etc/apt/sources.list \
     && printf 'Dir::Etc::sourceparts "-";\n' > /etc/apt/apt.conf.d/99kali-mcp-mirror \
-    && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o APT::Update::Error-Mode=any update && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
+    && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o APT::Update::Error-Mode=any update \
+    && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 upgrade -y --no-install-recommends \
+    && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
     ca-certificates curl wget jq iproute2 dnsutils netcat-openbsd \
     nmap gobuster dirb nikto sqlmap whatweb python3 python3-flask python3-mcp \
     python3-requests python3-waitress \

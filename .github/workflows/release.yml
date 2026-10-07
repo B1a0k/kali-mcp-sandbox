@@ -51,6 +51,7 @@ jobs:
     strategy:
       matrix: ${{ fromJSON(needs.plan.outputs.images) }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Build and test guest
@@ -64,11 +65,15 @@ jobs:
           python scripts/docker_smoke.py --image "kali-mcp-sandbox:$VERSION-$ARCH" | tee "release/docker-smoke-$ARCH.log"
           docker save "kali-mcp-sandbox:$VERSION-$ARCH" -o "release/kali-core-$ARCH.tar"
           docker run --rm --entrypoint cat "kali-mcp-sandbox:$VERSION-$ARCH" /usr/share/kali-mcp-package-versions.txt > "release/packages-$ARCH.txt"
+          mkdir sources
+          docker run --rm --user 0:0 --cpus 2 --memory 1g -v "$PWD/sources:/sources" -v "$PWD/scripts/collect_sources.py:/collect.py:ro" --entrypoint python3 "kali-mcp-sandbox:$VERSION-$ARCH" /collect.py
+          tar -czf "release/kali-sources-$ARCH.tar.gz" -C sources .
       - uses: actions/upload-artifact@v4
         with:
           name: image-${{ matrix.arch }}
           path: release/*
           retention-days: 7
+          compression-level: 0
   runtimes:
     needs: plan
     runs-on: ubuntu-24.04
@@ -82,10 +87,17 @@ jobs:
           selected=json.loads(os.environ['PLATFORMS'])
           subprocess.run(['python','scripts/release.py','runtime','--output','release',*[x for p in selected for x in ('--platform',p)]],check=True)
           PY
+      - name: Preserve runtime licenses and corresponding sources
+        run: |
+          cp licenses/* release/
+          curl --fail --location --retry 3 https://codeload.github.com/superradcompany/microsandbox/tar.gz/refs/tags/v0.7.7 -o release/microsandbox-0.7.7-source.tar.gz
+          curl --fail --location --retry 3 https://codeload.github.com/superradcompany/libkrunfw/tar.gz/21f169f7e94798c8916315f8ac6f5999d5b88566 -o release/libkrunfw-21f169f-source.tar.gz
+          curl --fail --location --retry 3 https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.111.tar.gz -o release/linux-6.12.111.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: runtimes
           path: release/*
+          compression-level: 0
   vm:
     needs: [plan, images, runtimes]
     strategy:
@@ -116,6 +128,7 @@ jobs:
           with open('release/smoke-'+os.environ['PLATFORM']+'.log','w') as log:
               subprocess.run(['python','scripts/smoke.py','--msb',str(exe),'--firmware','release/'+os.environ['FW'],'--image','release/kali-core-'+os.environ['ARCH']+'.tar','--image-ref','kali-mcp-sandbox:'+os.environ['VERSION']+'-'+os.environ['ARCH']],stdout=log,stderr=subprocess.STDOUT,check=True)
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: smoke-${{ matrix.platform }}
           path: release/smoke-*.log
@@ -131,6 +144,8 @@ jobs:
           path: release
           merge-multiple: true
       - run: python -m pip install .
+      - name: Build standalone launcher wheel
+        run: python -m pip wheel --no-deps . --wheel-dir release
       - name: Sign and publish verified artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -145,9 +160,16 @@ jobs:
           channel=json.loads(pathlib.Path('kali_mcp_sandbox/channel.json').read_text())
           assert channel['publicKey']==os.environ['KALI_PUBLIC_KEY'].strip()
           v=os.environ['VERSION']; repo=os.environ['REPOSITORY']
+          import tomllib
+          assert tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version']==v, 'Bump package version before release'
           tag='v'+v
+          # Never bind a new build to an existing tag pointing at different source.
+          ref=subprocess.run(['gh','api',f'repos/{repo}/git/ref/tags/{tag}'],capture_output=True,text=True)
+          if ref.returncode==0:
+              assert json.loads(ref.stdout)['object']['sha']==os.environ['GITHUB_SHA'], 'Tag points at different source'
           if subprocess.run(['gh','release','view',tag,'--repo',repo],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0:
               raise SystemExit('Release already exists; choose a new version')
           selected=json.loads(os.environ['PLATFORMS'])
           subprocess.run(['python','scripts/release.py','manifest','--output','release','--version',v,'--base-url',f'https://github.com/{repo}/releases/download/{tag}',*[x for p in selected for x in ('--platform',p)]],check=True)
-          subprocess.run(['gh','release','create',tag,'--repo',repo,'--target',os.environ['GITHUB_SHA'],'--title','Kali MCP Sandbox '+v,'--notes','Verified platforms: '+', '.join(selected),*[str(p) for p in pathlib.Path('release').iterdir()]],check=True)
+          subprocess.run(['gh','release','create',tag,'--repo',repo,'--target',os.environ['GITHUB_SHA'],'--draft','--title','Kali MCP Sandbox '+v,'--notes','Verified platforms: '+', '.join(selected)+'. Built and tested by GitHub Actions. See README for MCP setup and platform requirements.',*[str(p) for p in pathlib.Path('release').iterdir()]],check=True)
+          subprocess.run(['gh','release','edit',tag,'--repo',repo,'--draft=false','--latest'],check=True)
