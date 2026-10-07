@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kali-mcp-sandbox"
+version = "0.1.0"
+description = "Isolated Kali Linux tools for MCP-compatible AI clients"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["cryptography>=46,<49"]
+
+[project.urls]
+Homepage = "https://github.com/B1a0k/kali-mcp-sandbox"
+Issues = "https://github.com/B1a0k/kali-mcp-sandbox/issues"
+
+[project.scripts]
+kali-mcp-sandbox = "kali_mcp_sandbox.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["kali_mcp_sandbox*"]
+
+[tool.setuptools.package-data]
+kali_mcp_sandbox = ["channel.json"]

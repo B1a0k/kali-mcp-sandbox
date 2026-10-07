@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/Wh0am123/MCP-Kali-Server",
+  "commit": "00154c053845b2ec4c3eef49ad09dd9bb2d3b7aa",
+  "files": [
+    {
+      "name": "client.py",
+      "sha256": "10f8b5b0332bf98cbeb0783efd0049b4c7bfdb222da45577b5bf1a93fde0f74c"
+    },
+    {
+      "name": "LICENSE",
+      "sha256": "47ffc7240cef96c2d4a804b811da112671c4043184292ea405c80e1a80687b39"
+    },
+    {
+      "name": "server.py",
+      "sha256": "4468f08faf247abe546432a14f8db226f314b952f5a6dd7b1c6101346b31be7a"
+    }
+  ]
+}

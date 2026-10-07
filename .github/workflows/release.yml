@@ -1,0 +1,153 @@
+name: Build and verify release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Immutable version, e.g. 0.1.1
+        required: true
+      kali_base:
+        description: Official kalilinux/kali-rolling@sha256 digest
+        required: true
+        default: kalilinux/kali-rolling@sha256:c717f201f29a7e0a9126c0d51bd08aa7194ac82f53c57314339182f92b0b1585
+      platforms:
+        description: JSON platform array; each requires its real VM runner
+        required: true
+        default: '["windows-x86_64"]'
+permissions:
+  contents: read
+concurrency:
+  group: kali-release
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      images: ${{ steps.matrix.outputs.images }}
+      vms: ${{ steps.matrix.outputs.vms }}
+    steps:
+      - id: matrix
+        env:
+          VERSION: ${{ inputs.version }}
+          BASE: ${{ inputs.kali_base }}
+          PLATFORMS: ${{ inputs.platforms }}
+        shell: python
+        run: |
+          import os,json,re
+          assert re.fullmatch(r'[A-Za-z0-9.-]+',os.environ['VERSION'])
+          assert re.fullmatch(r'kalilinux/kali-rolling@sha256:[0-9a-f]{64}',os.environ['BASE'])
+          selected=json.loads(os.environ['PLATFORMS'])
+          mapping={
+            'windows-x86_64':dict(runner='windows-kali-whp',arch='amd64',exe='msb-windows-x86_64.exe',fw='libkrunfw-windows-x86_64.dll'),
+            'linux-x86_64':dict(runner='linux-kali-kvm',arch='amd64',exe='msb-linux-x86_64',fw='libkrunfw-linux-x86_64.so'),
+            'darwin-aarch64':dict(runner='macos-kali-hvf',arch='arm64',exe='msb-darwin-aarch64',fw='libkrunfw-darwin-aarch64.dylib')}
+          assert isinstance(selected,list) and selected and len(set(selected))==len(selected)
+          vms=[dict(platform=p,**mapping[p]) for p in selected]
+          images=[dict(arch=a,runner='ubuntu-24.04' if a=='amd64' else 'ubuntu-24.04-arm') for a in sorted({v['arch'] for v in vms})]
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+            f.write('images='+json.dumps({'include':images})+'\n')
+            f.write('vms='+json.dumps({'include':vms})+'\n')
+  images:
+    needs: plan
+    strategy:
+      matrix: ${{ fromJSON(needs.plan.outputs.images) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test guest
+        env:
+          VERSION: ${{ inputs.version }}
+          BASE: ${{ inputs.kali_base }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir release
+          docker build --build-arg "KALI_BASE=$BASE" -t "kali-mcp-sandbox:$VERSION-$ARCH" image
+          python scripts/docker_smoke.py --image "kali-mcp-sandbox:$VERSION-$ARCH" | tee "release/docker-smoke-$ARCH.log"
+          docker save "kali-mcp-sandbox:$VERSION-$ARCH" -o "release/kali-core-$ARCH.tar"
+          docker run --rm --entrypoint cat "kali-mcp-sandbox:$VERSION-$ARCH" /usr/share/kali-mcp-package-versions.txt > "release/packages-$ARCH.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.arch }}
+          path: release/*
+          retention-days: 7
+  runtimes:
+    needs: plan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          python - <<'PY'
+          import os,json,subprocess
+          selected=json.loads(os.environ['PLATFORMS'])
+          subprocess.run(['python','scripts/release.py','runtime','--output','release',*[x for p in selected for x in ('--platform',p)]],check=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes
+          path: release/*
+  vm:
+    needs: [plan, images, runtimes]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.vms) }}
+    runs-on: [self-hosted, '${{ matrix.runner }}']
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtimes
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: image-${{ matrix.arch }}
+          path: release
+      - env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ matrix.arch }}
+          EXE: ${{ matrix.exe }}
+          FW: ${{ matrix.fw }}
+          PLATFORM: ${{ matrix.platform }}
+        shell: python
+        run: |
+          import os,pathlib,subprocess
+          exe=pathlib.Path('release')/os.environ['EXE']; exe.chmod(0o755)
+          with open('release/smoke-'+os.environ['PLATFORM']+'.log','w') as log:
+              subprocess.run(['python','scripts/smoke.py','--msb',str(exe),'--firmware','release/'+os.environ['FW'],'--image','release/kali-core-'+os.environ['ARCH']+'.tar','--image-ref','kali-mcp-sandbox:'+os.environ['VERSION']+'-'+os.environ['ARCH']],stdout=log,stderr=subprocess.STDOUT,check=True)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.platform }}
+          path: release/smoke-*.log
+  publish:
+    needs: vm
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - run: python -m pip install .
+      - name: Sign and publish verified artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KALI_SIGNING_SEED: ${{ secrets.KALI_SIGNING_SEED }}
+          KALI_PUBLIC_KEY: ${{ vars.KALI_PUBLIC_KEY }}
+          VERSION: ${{ inputs.version }}
+          PLATFORMS: ${{ inputs.platforms }}
+          REPOSITORY: ${{ github.repository }}
+        shell: python
+        run: |
+          import os,json,subprocess,pathlib
+          channel=json.loads(pathlib.Path('kali_mcp_sandbox/channel.json').read_text())
+          assert channel['publicKey']==os.environ['KALI_PUBLIC_KEY'].strip()
+          v=os.environ['VERSION']; repo=os.environ['REPOSITORY']
+          tag='v'+v
+          if subprocess.run(['gh','release','view',tag,'--repo',repo],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0:
+              raise SystemExit('Release already exists; choose a new version')
+          selected=json.loads(os.environ['PLATFORMS'])
+          subprocess.run(['python','scripts/release.py','manifest','--output','release','--version',v,'--base-url',f'https://github.com/{repo}/releases/download/{tag}',*[x for p in selected for x in ('--platform',p)]],check=True)
+          subprocess.run(['gh','release','create',tag,'--repo',repo,'--target',os.environ['GITHUB_SHA'],'--title','Kali MCP Sandbox '+v,'--notes','Verified platforms: '+', '.join(selected),*[str(p) for p in pathlib.Path('release').iterdir()]],check=True)
