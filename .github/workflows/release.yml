@@ -60,18 +60,24 @@ jobs:
           BASE: ${{ inputs.kali_base }}
           ARCH: ${{ matrix.arch }}
         run: |
-          mkdir release
+          mkdir release source-release
           docker build --build-arg "KALI_BASE=$BASE" -t "kali-mcp-sandbox:$VERSION-$ARCH" image
           python scripts/docker_smoke.py --image "kali-mcp-sandbox:$VERSION-$ARCH" | tee "release/docker-smoke-$ARCH.log"
           docker save "kali-mcp-sandbox:$VERSION-$ARCH" -o "release/kali-core-$ARCH.tar"
           docker run --rm --entrypoint cat "kali-mcp-sandbox:$VERSION-$ARCH" /usr/share/kali-mcp-package-versions.txt > "release/packages-$ARCH.txt"
           mkdir sources
           docker run --rm --user 0:0 --cpus 2 --memory 1g -v "$PWD/sources:/sources" -v "$PWD/scripts/collect_sources.py:/collect.py:ro" --entrypoint python3 "kali-mcp-sandbox:$VERSION-$ARCH" /collect.py
-          tar -czf "release/kali-sources-$ARCH.tar.gz" -C sources .
+          tar -czf "source-release/kali-sources-$ARCH.tar.gz" -C sources .
       - uses: actions/upload-artifact@v4
         with:
           name: image-${{ matrix.arch }}
           path: release/*
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sources-${{ matrix.arch }}
+          path: source-release/*
           retention-days: 7
           compression-level: 0
   runtimes:
@@ -89,14 +95,20 @@ jobs:
           PY
       - name: Preserve runtime licenses and corresponding sources
         run: |
-          cp licenses/* release/
-          curl --fail --location --retry 3 https://codeload.github.com/superradcompany/microsandbox/tar.gz/refs/tags/v0.7.7 -o release/microsandbox-0.7.7-source.tar.gz
-          curl --fail --location --retry 3 https://codeload.github.com/superradcompany/libkrunfw/tar.gz/21f169f7e94798c8916315f8ac6f5999d5b88566 -o release/libkrunfw-21f169f-source.tar.gz
-          curl --fail --location --retry 3 https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.111.tar.gz -o release/linux-6.12.111.tar.gz
+          mkdir source-release
+          cp licenses/* source-release/
+          curl --fail --location --retry 3 https://codeload.github.com/superradcompany/microsandbox/tar.gz/refs/tags/v0.7.7 -o source-release/microsandbox-0.7.7-source.tar.gz
+          curl --fail --location --retry 3 https://codeload.github.com/superradcompany/libkrunfw/tar.gz/21f169f7e94798c8916315f8ac6f5999d5b88566 -o source-release/libkrunfw-21f169f-source.tar.gz
+          curl --fail --location --retry 3 https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.111.tar.gz -o source-release/linux-6.12.111.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: runtimes
           path: release/*
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-sources
+          path: source-release/*
           compression-level: 0
   vm:
     needs: [plan, images, runtimes]
