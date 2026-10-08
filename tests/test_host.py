@@ -45,6 +45,18 @@ class ReleaseTrust(unittest.TestCase):
         with self.assertRaises(ValueError):
             artifacts.verify_manifest(self.signed(self.manifest), self.public)
 
+    def test_guest_service_is_optional_but_validated_when_present(self):
+        service = dict(self.manifest["platforms"]["windows-x86_64"]["image"])
+        self.manifest["guestService"] = service
+        self.assertEqual(artifacts.verify_manifest(self.signed(self.manifest), self.public)["guestService"], service)
+        service["bytes"] = 1024 * 1024 + 1
+        with self.assertRaises(ValueError):
+            artifacts.verify_manifest(self.signed(self.manifest), self.public)
+        service["bytes"] = 1
+        service["urls"] = ["http://example.org/service.py"]
+        with self.assertRaises(ValueError):
+            artifacts.verify_manifest(self.signed(self.manifest), self.public)
+
     def test_content_digest_not_just_size(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "file"

@@ -8,11 +8,11 @@ The release workflow accepts an immutable version, official Kali digest and plat
 
 For a locally verified bootstrap release, run the same Docker and native smoke tests, preserve logs, then sign **only the tested platforms** with `scripts/release.py manifest --platform windows-x86_64 ...`. Publish the source tag and full release assets together. Do not claim other platforms passed based on the Windows result. CI must not quietly replace files under an existing release tag.
 
-Artifacts: `manifest.signed.json`, `manifest-public-key.txt`, platform `msb-*` and `libkrunfw-*`, `kali-core-*.tar`, package version lists, verification logs and source/license material. The installer verifies the key compiled into the client; it must never trust a public key merely because it was downloaded beside an untrusted manifest.
+Artifacts: `manifest.signed.json`, `manifest-public-key.txt`, platform `msb-*` and `libkrunfw-*`, signed-digest `guest-service.py`, `kali-core-*.tar`, package version lists, verification logs and source/license material. The installer verifies the key compiled into the client; it must never trust a public key merely because it was downloaded beside an untrusted manifest.
 
 For mirrors, upload identical immutable artifacts to all locations and pass up to four `--mirror https://.../VERSION` prefixes when signing. Publish the manifest last. Do not put expiring object-storage links in manifests. Currently the bootstrap manifest URL is a single GitHub URL; a mainland mirror also needs an independently reachable manifest bootstrap path before it can solve GitHub reachability.
 
-Offline CobaltElectron installation accepts a directory containing the signed manifest and its platform's three named assets. Standalone CLI currently installs online only. CobaltElectron embeds the public channel, retains its own UI/policy/lifecycle integration and must point to this repository for releases.
+Offline CobaltElectron installation accepts a directory containing the signed manifest and its platform's named assets and `guest-service.py` when present in the manifest. Standalone CLI currently installs online only. CobaltElectron embeds the public channel, retains its own UI/policy/lifecycle integration and must point to this repository for releases.
 
 ## License/source checklist
 

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -46,8 +47,11 @@ class Jobs:
                 return self.read(old[0])
             if len(self.processes) >= self.max_active:
                 raise RuntimeError("Job capacity reached; wait for an existing job to finish")
-            if self.db.execute("SELECT count(*) FROM jobs").fetchone()[0] >= 256:
-                raise RuntimeError("Job history quota reached; export results and use a new environment")
+            # A persistent environment must not expire after a fixed number of jobs.
+            # Keep receipts/results for idempotency; refuse new work only when real
+            # disk headroom is exhausted. Never erase evidence or reset the guest.
+            if shutil.disk_usage(self.root).free < 128 * 1024 * 1024:
+                raise RuntimeError("Workspace disk is nearly full; export or remove unneeded files before submitting more work. Existing jobs and history are preserved.")
             job_id = uuid.uuid4().hex
             self.db.execute("INSERT INTO jobs VALUES(?,?,?,'queued',NULL,?,NULL)", (job_id, request_id, fingerprint, time.time()))
             self.db.commit()
@@ -161,8 +165,8 @@ class Jobs:
 
     def health(self):
         with self.lock:
-            recent = self.db.execute("SELECT id,state FROM jobs ORDER BY CASE WHEN state IN ('running','queued') THEN 0 ELSE 1 END,created DESC LIMIT 20").fetchall()
-            return {"ready": True, "activeJobs": len(self.processes), "jobs": [{"jobId": r[0], "state": r[1]} for r in recent]}
+            recent = self.db.execute("SELECT id,state,request_id FROM jobs ORDER BY CASE WHEN state IN ('running','queued') THEN 0 ELSE 1 END,created DESC LIMIT 20").fetchall()
+            return {"ready": True, "activeJobs": len(self.processes), "jobs": [{"jobId": r[0], "state": r[1], "requestId": r[2]} for r in recent]}
 
     def close(self):
         for job_id in list(self.processes):

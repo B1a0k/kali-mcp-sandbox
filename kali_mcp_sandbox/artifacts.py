@@ -59,6 +59,14 @@ def verify_manifest(raw, public_key):
         raise ValueError("Unsupported release schema/runtime")
     if not re.fullmatch(r"[A-Za-z0-9.-]+", manifest["version"]) or not manifest["platforms"]:
         raise ValueError("Invalid release version/platforms")
+    service = manifest.get("guestService")
+    if service is not None:
+        if not 0 < service["bytes"] <= 1024 * 1024 or not re.fullmatch(r"[0-9a-f]{64}", service["sha256"]):
+            raise ValueError("Invalid guest service size/digest")
+        if not 1 <= len(service["urls"]) <= 5:
+            raise ValueError("Invalid guest service mirrors")
+        for url in service["urls"]:
+            https_url(url)
     for entry in manifest["platforms"].values():
         if not re.fullmatch(r"kali-mcp-sandbox:[A-Za-z0-9.-]+", entry["imageRef"]):
             raise ValueError("Invalid image reference")

@@ -53,7 +53,9 @@ Core includes **nmap, gobuster, dirb, nikto, sqlmap, whatweb, curl, wget, jq, di
 - `job_cancel(job_id)` cancels the process group, not just its parent shell.
 - `environment_health()` reports readiness and active/recent jobs. Inspect it after reconnecting instead of replaying commands.
 
-Default limits: 1 GiB memory, 2 vCPUs, an 8 GiB sparse writable disk, two concurrent guest jobs, 4 MiB per output stream, 16 KiB per read, 256 retained jobs and a one-hour maximum command timeout. Job history reaching quota rejects new work rather than silently deleting evidence.
+Default limits: 1 GiB memory, 2 vCPUs, an 8 GiB sparse writable disk, two concurrent guest jobs, 4 MiB per output stream, 16 KiB per read and a one-hour maximum command timeout. Job history has no fixed count limit. New work is rejected below 128 MiB of available workspace disk; existing jobs, results and idempotency receipts are preserved, and the environment is never automatically reset.
+
+Starting in v0.1.2, the signed manifest also includes a small `guestService` asset. Embedded hosts can verify it, explicitly stop/start an existing VM, then apply the service upgrade without replacing the disk. The updater installs an immutable version directory, preserves `/workspace`, and refuses to run while an API process holds its lease. Existing v0.1.1 disks do not change merely because a new image was downloaded.
 
 Network defaults to `public`; `--network none` disables networking and `--network public,private` permits private destinations. TCP/HTTP/DNS are supported; raw packets, ARP, wireless operations and Windows ICMP semantics are not promised. Nmap defaults to TCP connect scanning.
 
@@ -63,13 +65,19 @@ The VM starts when the MCP client connects and stops when stdio closes normally.
 
 Changing image version, CPU, memory or network for an existing standalone workspace requires a new workspace ID; the old disk is preserved. `status` lists sandboxes. There is no remote multi-user pool in this release and no isolation between two processes inside the same workspace. The standalone launcher limits each VM, not the total number of distinct workspaces that users launch.
 
+### Embedded shared environments
+
+A desktop host can own one persistent VM and multiplex conversations over its MCP connection. Conversation creation and tab closure must not close that host-owned connection. The host must namespace command request IDs, persist each returned job's conversation owner, and restrict automatic cancellation to that owner's jobs. Use separate default working directories to avoid accidental file-name collisions; explicit shared paths and installed tools remain shared. This is coordination within one trusted desktop user, not a security boundary between untrusted tenants. The standalone `serve` command above retains its single-workspace lease contract.
+
+`python scripts/shared_smoke.py --image IMAGE` verifies three MCP bridges against an offline disposable container, including reconnect, job persistence, independent cancellation and idempotent receipts.
+
 ## Build and verify
 
 ```sh
-docker build --build-arg KALI_BASE=kalilinux/kali-rolling@sha256:c717f201f29a7e0a9126c0d51bd08aa7194ac82f53c57314339182f92b0b1585 -t kali-mcp-sandbox:0.1.1-amd64 image
-python scripts/docker_smoke.py --image kali-mcp-sandbox:0.1.1-amd64
-docker save kali-mcp-sandbox:0.1.1-amd64 -o kali-core-amd64.tar
-python scripts/smoke.py --msb PATH_TO_MSB --firmware PATH_TO_LIBKRUNFW --image kali-core-amd64.tar --image-ref kali-mcp-sandbox:0.1.1-amd64
+docker build --build-arg KALI_BASE=kalilinux/kali-rolling@sha256:c717f201f29a7e0a9126c0d51bd08aa7194ac82f53c57314339182f92b0b1585 -t kali-mcp-sandbox:0.1.2-amd64 image
+python scripts/docker_smoke.py --image kali-mcp-sandbox:0.1.2-amd64
+docker save kali-mcp-sandbox:0.1.2-amd64 -o kali-core-amd64.tar
+python scripts/smoke.py --msb PATH_TO_MSB --firmware PATH_TO_LIBKRUNFW --image kali-core-amd64.tar --image-ref kali-mcp-sandbox:0.1.2-amd64
 ```
 
 The base is official Kali Linux, with a curated package layer and an adapted MCP service. The base digest and upstream MCP commit are pinned. Kali rolling package indexes still change: rebuildable source **does not imply bit-for-bit reproducibility**. Releases include exact archive digests and package versions.

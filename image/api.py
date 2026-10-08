@@ -34,7 +34,8 @@ upstream.execute_command = lambda command: jobs.submit(command, request.headers.
 @upstream.app.get("/managed/health")
 def health():
     missing = [tool for tool in ("nmap", "gobuster", "dirb", "nikto", "sqlmap", "whatweb", "curl", "dig") if not shutil.which(tool)]
-    return jsonify({**jobs.health(), "ready": not missing, "missingTools": missing})
+    return jsonify({**jobs.health(), "ready": not missing, "missingTools": missing,
+                    "serviceVersion": (Path(__file__).with_name("version.txt").read_text().strip() if Path(__file__).with_name("version.txt").exists() else "bundled")})
 
 @upstream.app.post("/managed/read")
 def read_job():

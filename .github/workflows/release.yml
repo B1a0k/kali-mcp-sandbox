@@ -61,8 +61,10 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           mkdir release source-release
+          python scripts/service_bundle.py --output release/guest-service.py --version "$VERSION"
           docker build --build-arg "KALI_BASE=$BASE" -t "kali-mcp-sandbox:$VERSION-$ARCH" image
           python scripts/docker_smoke.py --image "kali-mcp-sandbox:$VERSION-$ARCH" | tee "release/docker-smoke-$ARCH.log"
+          python scripts/shared_smoke.py --image "kali-mcp-sandbox:$VERSION-$ARCH" | tee "release/shared-smoke-$ARCH.log"
           docker save "kali-mcp-sandbox:$VERSION-$ARCH" -o "release/kali-core-$ARCH.tar"
           docker run --rm --entrypoint cat "kali-mcp-sandbox:$VERSION-$ARCH" /usr/share/kali-mcp-package-versions.txt > "release/packages-$ARCH.txt"
           mkdir sources
@@ -138,7 +140,7 @@ jobs:
           import os,pathlib,subprocess
           exe=pathlib.Path('release')/os.environ['EXE']; exe.chmod(0o755)
           with open('release/smoke-'+os.environ['PLATFORM']+'.log','w') as log:
-              subprocess.run(['python','scripts/smoke.py','--msb',str(exe),'--firmware','release/'+os.environ['FW'],'--image','release/kali-core-'+os.environ['ARCH']+'.tar','--image-ref','kali-mcp-sandbox:'+os.environ['VERSION']+'-'+os.environ['ARCH']],stdout=log,stderr=subprocess.STDOUT,check=True)
+              subprocess.run(['python','scripts/smoke.py','--msb',str(exe),'--firmware','release/'+os.environ['FW'],'--image','release/kali-core-'+os.environ['ARCH']+'.tar','--image-ref','kali-mcp-sandbox:'+os.environ['VERSION']+'-'+os.environ['ARCH'],'--service','release/guest-service.py'],stdout=log,stderr=subprocess.STDOUT,check=True)
       - uses: actions/upload-artifact@v4
         if: always()
         with:

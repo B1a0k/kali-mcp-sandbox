@@ -72,7 +72,7 @@ class RPC:
             self.process.kill()
             self.process.wait()
 
-def smoke(msb, firmware, image, image_ref):
+def smoke(msb, firmware, image, image_ref, service=None):
     image_ref = 'docker.io/library/' + image_ref
     with tempfile.TemporaryDirectory(prefix="kali-mcp-smoke-") as temp:
         env = {**os.environ, "MSB_HOME": temp, "MSB_LIBKRUNFW_PATH": str(firmware.resolve())}
@@ -120,10 +120,25 @@ def smoke(msb, firmware, image, image_ref):
             rpc = None
             run("stop", "--timeout", "15", name)
             run("start", name)
+            if service:
+                import hashlib
+                digest = hashlib.sha256(service.read_bytes()).hexdigest()
+                run("cp", str(service.resolve()), name + ":/tmp/service-update.py")
+                run("exec", "--user", "0:0", name, "--", "python3", "/tmp/service-update.py")
+                command[-1] = "/opt/kali-mcp-services/" + digest + "/bridge.py"
             rpc = RPC(command, env)
             rpc.initialize()
             assert rpc.tool("environment_health", {})["ready"]
             assert rpc.tool("job_read", {"job_id": job})["state"] == "cancelled"
+            if service:
+                assert rpc.tool("environment_health", {})["serviceVersion"] != "bundled"
+                # Installer must refuse any live service, even if its jobs are idle.
+                try:
+                    run("exec", "--user", "0:0", name, "--", "python3", "/tmp/service-update.py")
+                except RuntimeError as error:
+                    assert "service is running" in str(error)
+                else:
+                    raise AssertionError("Update modified a live environment")
         finally:
             if rpc:
                 rpc.close()
@@ -140,5 +155,6 @@ if __name__ == "__main__":
     for field in ("msb", "firmware", "image"):
         parser.add_argument("--" + field, type=Path, required=True)
     parser.add_argument("--image-ref", required=True)
+    parser.add_argument("--service", type=Path)
     options = parser.parse_args()
-    smoke(options.msb, options.firmware, options.image, options.image_ref)
+    smoke(options.msb, options.firmware, options.image, options.image_ref, options.service)

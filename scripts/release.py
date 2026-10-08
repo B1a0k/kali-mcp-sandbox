@@ -59,7 +59,7 @@ def manifest(output, version, base_url, mirrors, selected=PLATFORMS):
                                "firmware": asset(f"libkrunfw-{platform}{lib}"),
                                "image": asset(f"kali-core-{arch}.tar"),
                                "imageRef": f"kali-mcp-sandbox:{version}-{arch}"}
-    payload = json.dumps({"schema": 1, "version": version, "runtimeVersion": VERSION, "platforms": platforms}, separators=(",", ":")).encode()
+    payload = json.dumps({"schema": 1, "version": version, "runtimeVersion": VERSION, "guestService": asset("guest-service.py"), "platforms": platforms}, separators=(",", ":")).encode()
     seed = base64.b64decode(os.environ["KALI_SIGNING_SEED"].strip(), validate=True)
     private = Ed25519PrivateKey.from_private_bytes(seed)
     public = base64.b64encode(private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)).decode()
