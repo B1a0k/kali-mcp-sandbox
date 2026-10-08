@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import time
 import unittest
@@ -39,7 +40,7 @@ class JobStoreTests(unittest.TestCase):
                 jobs.read(job_id, wait_seconds=100)
             jobs.db.close()
 
-@unittest.skipUnless(os.name == "posix", "guest jobs require Linux process groups")
+@unittest.skipUnless(sys.platform == "linux", "worker limits and process groups target the Linux guest; host persistence tests run on every OS")
 class JobTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
