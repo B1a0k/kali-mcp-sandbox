@@ -74,7 +74,7 @@ jobs:
           mkdir sources
           docker run --rm --user 0:0 --cpus 2 --memory 1g -v "$PWD/sources:/sources" -v "$PWD/scripts/collect_sources.py:/collect.py:ro" --entrypoint python3 "kali-mcp-sandbox:$VERSION-$ARCH" /collect.py
           tar -czf "source-release/kali-sources-$ARCH.tar.gz" -C sources .
-          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           repository="${GITHUB_REPOSITORY,,}"
           docker tag "kali-mcp-sandbox:$VERSION-$ARCH" "ghcr.io/$repository:candidate-$ARCH"
           docker push "ghcr.io/$repository:candidate-$ARCH"
