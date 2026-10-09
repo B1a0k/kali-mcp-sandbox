@@ -182,15 +182,13 @@ jobs:
           FW: ${{ matrix.fw }}
           PLATFORM: ${{ matrix.platform }}
           CANDIDATE_IMAGE: ghcr.io/${{ github.repository }}:candidate-${{ matrix.arch }}
-          GH_TOKEN: ${{ github.token }}
-          REGISTRY_USERNAME: ${{ github.actor }}
         shell: python
         run: |
           import os,pathlib,subprocess
           exe=pathlib.Path('release')/os.environ['EXE']; exe.chmod(0o755)
           subprocess.run(['python','scripts/service_bundle.py','--output','release/guest-service.py','--version',os.environ['VERSION']],check=True)
           with open('release/smoke-'+os.environ['PLATFORM']+'.log','w') as log:
-              subprocess.run(['python','scripts/smoke.py','--msb',str(exe),'--firmware','release/'+os.environ['FW'],'--registry-image',os.environ['CANDIDATE_IMAGE'].lower(),'--registry-username',os.environ['REGISTRY_USERNAME'],'--registry-password-env','GH_TOKEN','--service','release/guest-service.py'],stdout=log,stderr=subprocess.STDOUT,check=True)
+              subprocess.run(['python','scripts/smoke.py','--msb',str(exe),'--firmware','release/'+os.environ['FW'],'--registry-image',os.environ['CANDIDATE_IMAGE'].lower(),'--service','release/guest-service.py'],stdout=log,stderr=subprocess.STDOUT,check=True)
       - uses: actions/upload-artifact@v4
         if: always()
         with:

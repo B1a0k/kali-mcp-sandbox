@@ -72,8 +72,7 @@ class RPC:
             self.process.kill()
             self.process.wait()
 
-def smoke(msb, firmware, image, image_ref, service=None, registry_image=None,
-          registry_username=None, registry_password=None):
+def smoke(msb, firmware, image, image_ref, service=None, registry_image=None):
     if image:
         image_ref = 'docker.io/library/' + image_ref
     elif registry_image:
@@ -95,20 +94,10 @@ def smoke(msb, firmware, image, image_ref, service=None, registry_image=None,
         run("create", "--pull", "never", "--name", name, "--cpus", "2", "--memory", "1024M", "--root-disk", "8G", "--net", "none", "--help")
         if image:
             run("load", "--input", str(image.resolve()), "--tag", image_ref)
-        else:
-            if registry_password:
-                registry = registry_image.split('/', 1)[0]
-                login = subprocess.run(
-                    [str(msb.resolve()), "registry", "login", registry,
-                     "--username", registry_username, "--password-stdin"],
-                    env=env, input=registry_password + "\n", capture_output=True,
-                    text=True, encoding="utf-8", errors="replace", timeout=60)
-                if login.returncode:
-                    raise RuntimeError(login.stdout + login.stderr)
-            run("pull", "--materialize", "flat", registry_image)
         rpc = None
         try:
-            run("create", "--pull", "never", "--name", name, "--cpus", "2", "--memory", "1024M", "--root-disk", "8G", "--net", "none", image_ref)
+            pull_policy = "never" if image else "if-missing"
+            run("create", "--pull", pull_policy, "--name", name, "--cpus", "2", "--memory", "1024M", "--root-disk", "8G", "--net", "none", image_ref)
             command = [str(msb.resolve()), "exec", "--stream", "--user", "0:0", name, "--", "python3", "/opt/kali-mcp/bridge.py"]
             rpc = RPC(command, env)
             rpc.initialize()
@@ -119,8 +108,14 @@ def smoke(msb, firmware, image, image_ref, service=None, registry_image=None,
             health = rpc.tool("environment_health", {})
             assert health["ready"] and health["root"] and health["effectiveUid"] == 0, health
             tool_check = rpc.tool("execute_command", {"command": "id -u; test -c /dev/net/tun; for x in openvpn smbclient smbexec impacket-smbexec proxychains4 nxc smbmap enum4linux-ng ldapsearch socat sshpass; do command -v \"$x\" || exit 1; done", "request_id": "root-toolchain", "timeout": 60})["jobId"]
-            tool_result = rpc.tool("job_read", {"job_id": tool_check, "wait_seconds": 5})
-            assert tool_result["state"] == "succeeded" and tool_result["output"].splitlines()[0] == "0", tool_result
+            tool_output, tool_cursor = "", 0
+            for _ in range(12):
+                tool_result = rpc.tool("job_read", {"job_id": tool_check, "cursor": tool_cursor, "wait_seconds": 5})
+                tool_output += tool_result["output"]
+                tool_cursor = tool_result["nextCursor"]
+                if tool_result["state"] != "running":
+                    break
+            assert tool_result["state"] == "succeeded" and tool_output.splitlines()[0] == "0", {**tool_result, "output": tool_output}
             request = {"command": "printf kali-mcp-smoke; sleep 2", "request_id": "smoke-idempotency", "timeout": 30}
             job = rpc.tool("execute_command", request)["jobId"]
             assert rpc.tool("execute_command", request)["jobId"] == job
@@ -170,8 +165,6 @@ def smoke(msb, firmware, image, image_ref, service=None, registry_image=None,
                 except RuntimeError:
                     run("stop", "--force", name)
                 run("rm", name)
-            if registry_image and registry_password:
-                run("registry", "logout", registry_image.split('/', 1)[0])
     print("PASS: VM startup, offline tools, stdio, idempotency, bridge reconnect, cancellation, stop/start persistence and cleanup")
 
 if __name__ == "__main__":
@@ -181,17 +174,11 @@ if __name__ == "__main__":
     parser.add_argument("--image", type=Path)
     parser.add_argument("--image-ref")
     parser.add_argument("--registry-image")
-    parser.add_argument("--registry-username")
-    parser.add_argument("--registry-password-env")
     parser.add_argument("--service", type=Path)
     options = parser.parse_args()
     if bool(options.image) == bool(options.registry_image):
         parser.error("Specify exactly one of --image or --registry-image")
     if options.image and not options.image_ref:
         parser.error("--image-ref is required with --image")
-    password = os.environ.get(options.registry_password_env) if options.registry_password_env else None
-    if options.registry_password_env and not password:
-        parser.error("Registry password environment variable is empty")
     smoke(options.msb, options.firmware, options.image, options.image_ref,
-          options.service, options.registry_image, options.registry_username,
-          password)
+          options.service, options.registry_image)
