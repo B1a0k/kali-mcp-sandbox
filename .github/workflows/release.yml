@@ -118,10 +118,10 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.vms) }}
     runs-on: [self-hosted, '${{ matrix.runner }}']
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - name: Download release inputs with retry
+      - name: Download release inputs with resume and retry
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE_ARTIFACT: image-${{ matrix.arch }}
@@ -129,10 +129,26 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path release | Out-Null
+          $headers = @(
+            '--header', "Authorization: Bearer $env:GH_TOKEN",
+            '--header', 'Accept: application/vnd.github+json',
+            '--header', 'X-GitHub-Api-Version: 2022-11-28'
+          )
+          $artifactsUrl = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID/artifacts?per_page=100"
+          $artifactsJson = & curl.exe --silent --show-error --fail --location --connect-timeout 20 --retry 6 --retry-all-errors @headers $artifactsUrl
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to list workflow artifacts'
+          }
+          $artifacts = ($artifactsJson | ConvertFrom-Json).artifacts
           foreach ($artifact in @('runtimes', $env:IMAGE_ARTIFACT)) {
+            $entry = $artifacts | Where-Object name -eq $artifact | Select-Object -First 1
+            if (-not $entry) {
+              throw "Workflow artifact $artifact was not found"
+            }
+            $archive = Join-Path $env:RUNNER_TEMP ($artifact + '.zip')
             $downloaded = $false
             for ($attempt = 1; $attempt -le 6; $attempt++) {
-              gh run download $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY --name $artifact --dir release
+              & curl.exe --silent --show-error --fail --location --connect-timeout 20 --speed-limit 1024 --speed-time 60 --continue-at - --output $archive --retry 3 --retry-all-errors --retry-delay 5 @headers "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$($entry.id)/zip"
               if ($LASTEXITCODE -eq 0) {
                 $downloaded = $true
                 break
@@ -146,6 +162,8 @@ jobs:
             if (-not $downloaded) {
               throw "Unable to download artifact $artifact after 6 attempts"
             }
+            Expand-Archive -LiteralPath $archive -DestinationPath release -Force
+            Remove-Item -LiteralPath $archive -Force
           }
       - env:
           VERSION: ${{ inputs.version }}
