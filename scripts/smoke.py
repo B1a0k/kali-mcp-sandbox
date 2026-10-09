@@ -72,8 +72,14 @@ class RPC:
             self.process.kill()
             self.process.wait()
 
-def smoke(msb, firmware, image, image_ref, service=None):
-    image_ref = 'docker.io/library/' + image_ref
+def smoke(msb, firmware, image, image_ref, service=None, registry_image=None,
+          registry_username=None, registry_password=None):
+    if image:
+        image_ref = 'docker.io/library/' + image_ref
+    elif registry_image:
+        image_ref = registry_image
+    else:
+        raise ValueError("Either an image archive or a registry image is required")
     with tempfile.TemporaryDirectory(prefix="kali-mcp-smoke-") as temp:
         env = {**os.environ, "MSB_HOME": temp, "MSB_LIBKRUNFW_PATH": str(firmware.resolve())}
         name = "kali-mcp-smoke-" + uuid.uuid4().hex[:12]
@@ -87,7 +93,19 @@ def smoke(msb, firmware, image, image_ref, service=None):
         run("doctor")
         # Parse the exact production creation flags before loading a potentially large image.
         run("create", "--pull", "never", "--name", name, "--cpus", "2", "--memory", "1024M", "--root-disk", "8G", "--net", "none", "--help")
-        run("load", "--input", str(image.resolve()), "--tag", image_ref)
+        if image:
+            run("load", "--input", str(image.resolve()), "--tag", image_ref)
+        else:
+            if registry_password:
+                registry = registry_image.split('/', 1)[0]
+                login = subprocess.run(
+                    [str(msb.resolve()), "registry", "login", registry,
+                     "--username", registry_username, "--password-stdin"],
+                    env=env, input=registry_password + "\n", capture_output=True,
+                    text=True, encoding="utf-8", errors="replace", timeout=60)
+                if login.returncode:
+                    raise RuntimeError(login.stdout + login.stderr)
+            run("pull", "--materialize", "flat", registry_image)
         rpc = None
         try:
             run("create", "--pull", "never", "--name", name, "--cpus", "2", "--memory", "1024M", "--root-disk", "8G", "--net", "none", image_ref)
@@ -152,13 +170,28 @@ def smoke(msb, firmware, image, image_ref, service=None):
                 except RuntimeError:
                     run("stop", "--force", name)
                 run("rm", name)
+            if registry_image and registry_password:
+                run("registry", "logout", registry_image.split('/', 1)[0])
     print("PASS: VM startup, offline tools, stdio, idempotency, bridge reconnect, cancellation, stop/start persistence and cleanup")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    for field in ("msb", "firmware", "image"):
+    for field in ("msb", "firmware"):
         parser.add_argument("--" + field, type=Path, required=True)
-    parser.add_argument("--image-ref", required=True)
+    parser.add_argument("--image", type=Path)
+    parser.add_argument("--image-ref")
+    parser.add_argument("--registry-image")
+    parser.add_argument("--registry-username")
+    parser.add_argument("--registry-password-env")
     parser.add_argument("--service", type=Path)
     options = parser.parse_args()
-    smoke(options.msb, options.firmware, options.image, options.image_ref, options.service)
+    if bool(options.image) == bool(options.registry_image):
+        parser.error("Specify exactly one of --image or --registry-image")
+    if options.image and not options.image_ref:
+        parser.error("--image-ref is required with --image")
+    password = os.environ.get(options.registry_password_env) if options.registry_password_env else None
+    if options.registry_password_env and not password:
+        parser.error("Registry password environment variable is empty")
+    smoke(options.msb, options.firmware, options.image, options.image_ref,
+          options.service, options.registry_image, options.registry_username,
+          password)
