@@ -77,9 +77,9 @@ def build_server(client):
 
     @register("environment_health", True)
     def environment_health() -> dict:
-        """Report active jobs and recent IDs. Query after reconnect; never blindly replay a command."""
+        """Report active jobs, installed tools and execution identity. Commands run as root inside the isolated microVM; sudo is unnecessary. Query after reconnect and never blindly replay a command."""
         return {**client.ready(), "tools": [binary for binary in TOOLS.values() if shutil.which(binary)],
-                "network": "TCP connect/HTTP/DNS; raw packet semantics are unsupported"}
+                "network": "TCP connect/HTTP/DNS and TUN-based VPN when the runtime exposes /dev/net/tun; host access remains isolated"}
 
     @register("job_read", True)
     def job_read(job_id: str, cursor: int = 0, stream: str = "stdout", wait_seconds: int = 5) -> dict:
@@ -93,7 +93,7 @@ def build_server(client):
 
     @register("execute_command")
     def execute_command(command: str, request_id: str, timeout: int = 1800) -> dict:
-        """Execute inside Kali /workspace, never on the host. Use a unique stable request_id for this operation; retries with the same ID do not rerun it. Returns jobId; inspect job_read to completion. Timeout 1–3600 seconds."""
+        """Execute as root inside the isolated Kali microVM at /workspace, never on the host. Do not use sudo. Use a unique stable request_id for this operation; retries with the same ID do not rerun it. Returns jobId; inspect job_read to completion. Timeout 1–3600 seconds."""
         return client.safe_post("managed/submit", {"command": command, "request_id": request_id, "timeout": timeout})
 
     return mcp

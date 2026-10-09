@@ -91,14 +91,18 @@ def smoke(msb, firmware, image, image_ref, service=None):
         rpc = None
         try:
             run("create", "--pull", "never", "--name", name, "--cpus", "2", "--memory", "1024M", "--root-disk", "8G", "--net", "none", image_ref)
-            command = [str(msb.resolve()), "exec", "--stream", "--user", "1000:1000", name, "--", "python3", "/opt/kali-mcp/bridge.py"]
+            command = [str(msb.resolve()), "exec", "--stream", "--user", "0:0", name, "--", "python3", "/opt/kali-mcp/bridge.py"]
             rpc = RPC(command, env)
             rpc.initialize()
             tools = rpc.call("tools/list", {})["tools"]
             names = {tool["name"] for tool in tools}
             assert {"nmap_scan", "gobuster_scan", "job_read", "job_cancel", "execute_command", "environment_health"} <= names, names
             assert "metasploit_run" not in names
-            assert rpc.tool("environment_health", {})["ready"]
+            health = rpc.tool("environment_health", {})
+            assert health["ready"] and health["root"] and health["effectiveUid"] == 0, health
+            tool_check = rpc.tool("execute_command", {"command": "id -u; test -c /dev/net/tun; for x in openvpn smbclient smbexec impacket-smbexec proxychains4 nxc smbmap enum4linux-ng ldapsearch socat sshpass; do command -v \"$x\" || exit 1; done", "request_id": "root-toolchain", "timeout": 60})["jobId"]
+            tool_result = rpc.tool("job_read", {"job_id": tool_check, "wait_seconds": 5})
+            assert tool_result["state"] == "succeeded" and tool_result["output"].splitlines()[0] == "0", tool_result
             request = {"command": "printf kali-mcp-smoke; sleep 2", "request_id": "smoke-idempotency", "timeout": 30}
             job = rpc.tool("execute_command", request)["jobId"]
             assert rpc.tool("execute_command", request)["jobId"] == job

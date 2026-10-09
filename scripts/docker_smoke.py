@@ -29,12 +29,17 @@ def smoke(image):
     try:
         run('run', '-d', '--name', name, '--network', 'none', '--cpus', '2',
             '--memory', '1g', '--pids-limit', '128', image)
-        command = ['docker', 'exec', '-i', '--user', '1000:1000', name, 'python3', '/opt/kali-mcp/bridge.py']
+        command = ['docker', 'exec', '-i', '--user', '0:0', name, 'python3', '/opt/kali-mcp/bridge.py']
         rpc = RPC(command, os.environ.copy())
         rpc.initialize()
         names = {tool['name'] for tool in rpc.call('tools/list', {})['tools']}
         assert {'nmap_scan', 'gobuster_scan', 'job_read', 'job_cancel', 'execute_command'} <= names, names
-        assert rpc.tool('environment_health', {})['ready']
+        health = rpc.tool('environment_health', {})
+        assert health['ready'] and health['root'] and health['effectiveUid'] == 0, health
+        command_check = 'id -u; for x in openvpn smbclient smbexec impacket-smbexec proxychains4 nxc smbmap enum4linux-ng ldapsearch socat sshpass; do command -v "$x" || exit 1; done'
+        tool_job = rpc.tool('execute_command', {'command': command_check, 'request_id': 'root-toolchain', 'timeout': 30})['jobId']
+        tool_result = rpc.tool('job_read', {'job_id': tool_job, 'wait_seconds': 5})
+        assert tool_result['state'] == 'succeeded' and tool_result['output'].splitlines()[0] == '0', tool_result
         request = {'command': 'printf reconnect-ok; sleep 2', 'request_id': 'same-operation', 'timeout': 20}
         job = rpc.tool('execute_command', request)['jobId']
         assert rpc.tool('execute_command', request)['jobId'] == job

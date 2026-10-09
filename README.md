@@ -13,7 +13,7 @@ Windows requires hardware virtualization and the Windows Hypervisor Platform fea
 Install the host launcher from a reviewed release tag:
 
 ```sh
-python -m pip install "git+https://github.com/B1a0k/kali-mcp-sandbox.git@v0.1.1"
+python -m pip install "git+https://github.com/B1a0k/kali-mcp-sandbox.git@v0.2.0"
 kali-mcp-sandbox install
 kali-mcp-sandbox doctor
 ```
@@ -46,7 +46,9 @@ Windows paths such as `E:\KaliData` are supported. Defaults live in the user's a
 
 ## Tools and execution contract
 
-Core includes **nmap, gobuster, dirb, nikto, sqlmap, whatweb, curl, wget, jq, dig and netcat**. Only installed upstream MCP tools are advertised. Additional installed programs can be invoked through `execute_command`.
+Core includes **OpenVPN, smbclient, Impacket (including `impacket-smbexec` and the `smbexec` compatibility command), ProxyChains 4, NetExec (`nxc`), smbmap, enum4linux-ng, LDAP/Kerberos clients, socat, SSH tooling, nmap, gobuster, dirb, nikto, sqlmap, whatweb, curl, wget, jq, dig and netcat**. Only installed upstream MCP tools are advertised. Additional installed programs can be invoked through `execute_command`.
+
+Commands run as **root inside the isolated microVM**. Agents should invoke tools directly and must not waste a turn trying `sudo`; this does not grant access to the host. OpenVPN can configure routes and TUN devices when the host runtime exposes `/dev/net/tun`. The sandbox still has its own kernel, filesystem and network boundary.
 
 - `execute_command(command, request_id, timeout)` returns a **jobId**, not a completed result. Keep `request_id` stable for retries of one operation.
 - `job_read(job_id, cursor, stream, wait_seconds)` returns state, output and `nextCursor`; wait defaults to 5 seconds. Read until a terminal state and inspect the exit code.
@@ -55,7 +57,9 @@ Core includes **nmap, gobuster, dirb, nikto, sqlmap, whatweb, curl, wget, jq, di
 
 Default limits: 1 GiB memory, 2 vCPUs, an 8 GiB sparse writable disk, two concurrent guest jobs, 4 MiB per output stream, 16 KiB per read and a one-hour maximum command timeout. Job history has no fixed count limit. New work is rejected below 128 MiB of available workspace disk; existing jobs, results and idempotency receipts are preserved, and the environment is never automatically reset.
 
-Starting in v0.1.2, the signed manifest also includes a small `guestService` asset. Embedded hosts can verify it, explicitly stop/start an existing VM, then apply the service upgrade without replacing the disk. The updater installs an immutable version directory, preserves `/workspace`, and refuses to run while an API process holds its lease. Existing v0.1.1 disks do not change merely because a new image was downloaded.
+Starting in v0.1.2, the signed manifest also includes a small `guestService` asset. Embedded hosts can verify it, explicitly stop/start an existing VM, then apply the service upgrade without replacing the disk. Image updates are immutable: existing disks remain pinned to the image that created them, while a host integration can retain the previous disk for rollback and create a new instance from the updated image.
+
+Use `kali-mcp-sandbox check-update` for a machine-readable version check and `kali-mcp-sandbox update` to install the newest signed runtime and image. `uninstall` removes runtime/cache files but preserves sandbox disks; `uninstall --purge-data --confirm` is the explicit destructive variant. Stop live workspaces before either operation.
 
 Network defaults to `public`; `--network none` disables networking and `--network public,private` permits private destinations. TCP/HTTP/DNS are supported; raw packets, ARP, wireless operations and Windows ICMP semantics are not promised. Nmap defaults to TCP connect scanning.
 
@@ -74,10 +78,10 @@ A desktop host can own one persistent VM and multiplex conversations over its MC
 ## Build and verify
 
 ```sh
-docker build --build-arg KALI_BASE=kalilinux/kali-rolling@sha256:c717f201f29a7e0a9126c0d51bd08aa7194ac82f53c57314339182f92b0b1585 -t kali-mcp-sandbox:0.1.2-amd64 image
-python scripts/docker_smoke.py --image kali-mcp-sandbox:0.1.2-amd64
-docker save kali-mcp-sandbox:0.1.2-amd64 -o kali-core-amd64.tar
-python scripts/smoke.py --msb PATH_TO_MSB --firmware PATH_TO_LIBKRUNFW --image kali-core-amd64.tar --image-ref kali-mcp-sandbox:0.1.2-amd64
+docker build --build-arg KALI_BASE=kalilinux/kali-rolling@sha256:c717f201f29a7e0a9126c0d51bd08aa7194ac82f53c57314339182f92b0b1585 -t kali-mcp-sandbox:0.2.0-amd64 image
+python scripts/docker_smoke.py --image kali-mcp-sandbox:0.2.0-amd64
+docker save kali-mcp-sandbox:0.2.0-amd64 -o kali-core-amd64.tar
+python scripts/smoke.py --msb PATH_TO_MSB --firmware PATH_TO_LIBKRUNFW --image kali-core-amd64.tar --image-ref kali-mcp-sandbox:0.2.0-amd64
 ```
 
 The base is official Kali Linux, with a curated package layer and an adapted MCP service. The base digest and upstream MCP commit are pinned. Kali rolling package indexes still change: rebuildable source **does not imply bit-for-bit reproducibility**. Releases include exact archive digests and package versions.

@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from kali_mcp_sandbox import artifacts
-from kali_mcp_sandbox.cli import lock, workspace_name
+from kali_mcp_sandbox.cli import lock, update_available, workspace_name
 
 
 class ReleaseTrust(unittest.TestCase):
@@ -113,6 +113,18 @@ class WorkspaceLease(unittest.TestCase):
     def test_workspace_ids_are_opaque_and_path_safe(self):
         self.assertNotEqual(workspace_name("a/b"), workspace_name("a:b"))
         self.assertNotIn("..", workspace_name("../../outside"))
+
+    def test_release_versions_only_move_forward(self):
+        self.assertTrue(update_available("0.1.2", "0.2.0"))
+        self.assertTrue(update_available("1.0", "v1.0.1"))
+        self.assertFalse(update_available("0.2.0", "0.1.2"))
+        self.assertFalse(update_available("1.0.0", "1.0"))
+
+    def test_image_runs_as_root_and_contains_internal_network_toolchain(self):
+        dockerfile = (Path(__file__).resolve().parents[1] / "image" / "Dockerfile").read_text()
+        self.assertIn("USER 0:0", dockerfile)
+        for package in ("openvpn", "smbclient", "impacket-scripts", "proxychains4", "netexec", "smbmap", "enum4linux-ng"):
+            self.assertIn(package, dockerfile)
 
 
 if __name__ == "__main__":

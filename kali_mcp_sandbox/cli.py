@@ -97,12 +97,32 @@ def installed(home):
     return runtime
 
 
+def latest_release():
+    channel = artifacts.channel()
+    with artifacts.get(channel["manifestUrl"]) as response:
+        raw = response.read(256 * 1024 + 1)
+    return raw, artifacts.verify_manifest(raw, channel["publicKey"])
+
+
+def version_parts(value):
+    try:
+        return tuple(int(part) for part in value.removeprefix("v").split("."))
+    except ValueError:
+        return None
+
+
+def update_available(current, latest):
+    current_parts, latest_parts = version_parts(current), version_parts(latest)
+    if current_parts is None or latest_parts is None:
+        return current != latest
+    width = max(len(current_parts), len(latest_parts))
+    return latest_parts + (0,) * (width - len(latest_parts)) > current_parts + (0,) * (width - len(current_parts))
+
+
 def install(home):
     channel = artifacts.channel()
     with lock(home / "install.lock"):
-        with artifacts.get(channel["manifestUrl"]) as response:
-            raw = response.read(256 * 1024 + 1)
-        manifest = artifacts.verify_manifest(raw, channel["publicKey"])
+        raw, manifest = latest_release()
         platform = artifacts.platform_id()
         if platform not in manifest["platforms"]:
             raise RuntimeError(f"This release has no verified build for {platform}")
@@ -128,6 +148,40 @@ def install(home):
         runtime.run("load", "--input", str(paths["image"]), "--tag", "docker.io/library/" + runtime.entry["imageRef"], timeout=300)
         atomic_json(previous, {"envelope": json.loads(raw)})
         print(f"Installed {manifest['version']} for {platform}", file=sys.stderr)
+
+
+def check_update(home):
+    current = installed(home).manifest["version"]
+    _, latest = latest_release()
+    available = update_available(current, latest["version"])
+    print(json.dumps({"currentVersion": current, "latestVersion": latest["version"],
+                      "updateAvailable": available}))
+    return available
+
+
+def uninstall(home, purge=False):
+    with lock(home / "install.lock"):
+        runtime = installed(home)
+        inventory = json.loads(runtime.run("ls", "--format", "json"))
+        running = [entry.get("name", "unknown") for entry in inventory
+                   if str(entry.get("status", "")).lower() == "running"]
+        if running:
+            raise RuntimeError("Stop running sandboxes before uninstall: " + ", ".join(running))
+        targets = [home / "runtimes", home / "cache", home / "installation.json"]
+        if purge:
+            targets += [home / "runtime-state", home / "workspaces", home / "leases"]
+        root = home.resolve()
+        for path in targets:
+            if not path.exists():
+                continue
+            resolved = path.resolve()
+            if resolved.parent != root and resolved != root:
+                raise RuntimeError(f"Refusing to remove path outside home: {resolved}")
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+        print("Removed runtime and cache" + (", including sandbox data" if purge else "; sandbox disks are preserved"), file=sys.stderr)
 
 
 def workspace_name(workspace):
@@ -160,7 +214,7 @@ def serve(home, args):
                             "--memory", f"{args.memory}M", "--root-disk", "8G", "--net", args.network,
                             "docker.io/library/" + runtime.entry["imageRef"])
             created = True
-            process = subprocess.Popen([str(runtime.exe), "exec", "--stream", "--user", "1000:1000", name,
+            process = subprocess.Popen([str(runtime.exe), "exec", "--stream", "--user", "0:0", name,
                                         "--", "python3", "/opt/kali-mcp/bridge.py"],
                                        env=runtime.env, stdin=subprocess.PIPE, stdout=sys.stdout.buffer,
                                        stderr=sys.stderr.buffer, creationflags=runtime.flags)
@@ -195,7 +249,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--home", type=Path, default=default_home(), help="Physical runtime/cache/workspace directory")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("install", help="Download and verify the signed stable release")
+    sub.add_parser("install", help="Install or update to the signed stable release")
+    sub.add_parser("check-update", help="Compare the installed version with the signed stable release")
+    sub.add_parser("update", help="Update runtime and image; existing workspace disks remain pinned to their version")
+    remove = sub.add_parser("uninstall", help="Remove runtime and cache while preserving sandbox disks")
+    remove.add_argument("--purge-data", action="store_true", help="Also delete every sandbox disk and workspace record")
+    remove.add_argument("--confirm", action="store_true", help="Required together with --purge-data")
     sub.add_parser("doctor", help="Check installed runtime and hardware virtualization")
     sub.add_parser("status", help="List persistent sandboxes")
     start = sub.add_parser("serve", help="Serve MCP over stdio; stop VM on disconnect")
@@ -212,8 +271,14 @@ def main():
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, interrupt)
     try:
-        if args.command == "install":
+        if args.command in ("install", "update"):
             install(home)
+        elif args.command == "check-update":
+            check_update(home)
+        elif args.command == "uninstall":
+            if args.purge_data and not args.confirm:
+                raise RuntimeError("--purge-data requires --confirm")
+            uninstall(home, args.purge_data)
         elif args.command == "serve":
             sys.exit(serve(home, args))
         else:

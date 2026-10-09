@@ -14,11 +14,11 @@ def verify(image):
     clients = []
     try:
         subprocess.run(['docker', 'run', '-d', '--name', name, '--network', 'none',
-                        '--cpus', '1', '--memory', '256m', '--user', '1000:1000',
+                        '--cpus', '1', '--memory', '256m', '--user', '0:0',
                         '--mount', f'type=bind,source={source},target=/opt/kali-mcp,readonly',
                         '--entrypoint', 'python3', image, '/opt/kali-mcp/api.py'], check=True, capture_output=True)
         def connect():
-            rpc = RPC(['docker', 'exec', '-i', '--user', '1000:1000', name,
+            rpc = RPC(['docker', 'exec', '-i', '--user', '0:0', name,
                        'python3', '/opt/kali-mcp/bridge.py'], os.environ.copy())
             clients.append(rpc)
             rpc.initialize()

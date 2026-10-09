@@ -13,15 +13,18 @@ RUN --mount=type=secret,id=apt_ca,target=/run/secrets/apt-ca,mode=0444 \
     && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o APT::Update::Error-Mode=any update \
     && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 upgrade -y --no-install-recommends \
     && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
-    ca-certificates curl wget jq iproute2 dnsutils netcat-openbsd \
+    ca-certificates curl wget jq iproute2 iputils-ping dnsutils netcat-openbsd \
+    procps psmisc tcpdump traceroute whois socat openssh-client sshpass \
+    openvpn proxychains4 smbclient samba-common-bin ldap-utils krb5-user \
+    python3-impacket impacket-scripts netexec enum4linux-ng smbmap hydra john \
     nmap gobuster dirb nikto sqlmap whatweb python3 python3-flask python3-mcp \
     python3-requests python3-waitress \
+    && ln -s /usr/bin/impacket-smbexec /usr/local/bin/smbexec \
     && dpkg-query -W > /usr/share/kali-mcp-package-versions.txt \
     && rm -rf /var/lib/apt/lists/* && rm -f /etc/apt/apt.conf.d/98kali-mcp-build-ca \
-    && useradd --uid 1000 --create-home --shell /bin/bash kali \
-    && mkdir -p /workspace && chown kali:kali /workspace
+    && mkdir -p /workspace && chmod 0700 /workspace
 COPY upstream /opt/kali-mcp/upstream
 COPY jobs.py api.py bridge.py worker.py /opt/kali-mcp/
-USER 1000:1000
+USER 0:0
 WORKDIR /workspace
 ENTRYPOINT ["python3", "/opt/kali-mcp/api.py"]

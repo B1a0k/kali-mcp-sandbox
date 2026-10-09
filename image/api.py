@@ -13,6 +13,12 @@ from flask import request, jsonify
 from waitress import serve
 from jobs import Jobs
 
+REQUIRED_TOOLS = (
+    "nmap", "gobuster", "dirb", "nikto", "sqlmap", "whatweb", "curl", "dig",
+    "openvpn", "smbclient", "smbexec", "impacket-smbexec", "proxychains4", "nxc", "smbmap",
+    "enum4linux-ng", "ldapsearch", "socat", "sshpass",
+)
+
 # The API outlives individual stdio bridges; a new bridge may race a reconnect.
 state_dir = Path('/workspace/.jobs')
 state_dir.mkdir(parents=True, exist_ok=True)
@@ -33,8 +39,10 @@ upstream.execute_command = lambda command: jobs.submit(command, request.headers.
 
 @upstream.app.get("/managed/health")
 def health():
-    missing = [tool for tool in ("nmap", "gobuster", "dirb", "nikto", "sqlmap", "whatweb", "curl", "dig") if not shutil.which(tool)]
+    missing = [tool for tool in REQUIRED_TOOLS if not shutil.which(tool)]
     return jsonify({**jobs.health(), "ready": not missing, "missingTools": missing,
+                    "effectiveUid": os.geteuid(), "effectiveUser": "root" if os.geteuid() == 0 else str(os.geteuid()),
+                    "root": os.geteuid() == 0,
                     "serviceVersion": (Path(__file__).with_name("version.txt").read_text().strip() if Path(__file__).with_name("version.txt").exists() else "bundled")})
 
 @upstream.app.post("/managed/read")

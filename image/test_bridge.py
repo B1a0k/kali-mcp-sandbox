@@ -31,6 +31,7 @@ class BridgeTests(unittest.TestCase):
         self.assertFalse(tools['job_cancel'].annotations.readOnlyHint)
         self.assertIn('request_id', tools['execute_command'].inputSchema['required'])
         self.assertEqual(tools['job_read'].inputSchema['properties']['wait_seconds']['default'], 5)
+        self.assertIn('as root', tools['execute_command'].description)
 
     def test_reconnect_does_not_restart_healthy_api(self):
         class Client:

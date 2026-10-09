@@ -51,7 +51,7 @@ jobs:
     strategy:
       matrix: ${{ fromJSON(needs.plan.outputs.images) }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - name: Build and test guest
@@ -151,6 +151,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -160,6 +161,24 @@ jobs:
       - run: python -m pip install .
       - name: Build standalone launcher wheel
         run: python -m pip wheel --no-deps . --wheel-dir release
+      - name: Publish verified OCI image to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          repository="${GITHUB_REPOSITORY,,}"
+          for archive in release/kali-core-*.tar; do
+            arch="${archive##*kali-core-}"
+            arch="${arch%.tar}"
+            docker load --input "$archive"
+            docker tag "kali-mcp-sandbox:$VERSION-$arch" "ghcr.io/$repository:$VERSION-$arch"
+            docker tag "kali-mcp-sandbox:$VERSION-$arch" "ghcr.io/$repository:latest-$arch"
+            docker push "ghcr.io/$repository:$VERSION-$arch"
+            docker push "ghcr.io/$repository:latest-$arch"
+          done
       - name: Sign and publish verified artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -185,5 +204,6 @@ jobs:
               raise SystemExit('Release already exists; choose a new version')
           selected=json.loads(os.environ['PLATFORMS'])
           subprocess.run(['python','scripts/release.py','manifest','--output','release','--version',v,'--base-url',f'https://github.com/{repo}/releases/download/{tag}',*[x for p in selected for x in ('--platform',p)]],check=True)
-          subprocess.run(['gh','release','create',tag,'--repo',repo,'--target',os.environ['GITHUB_SHA'],'--draft','--title','Kali MCP Sandbox '+v,'--notes','Verified platforms: '+', '.join(selected)+'. Built and tested by GitHub Actions. See README for MCP setup and platform requirements.',*[str(p) for p in pathlib.Path('release').iterdir()]],check=True)
+          notes='Verified platforms: '+', '.join(selected)+'. Includes the root-by-default internal network toolchain (OpenVPN, SMB/Impacket, ProxyChains, NetExec and related clients), signed runtime assets, package inventory and real-hypervisor smoke evidence. Existing sandbox disks are never overwritten by installation.'
+          subprocess.run(['gh','release','create',tag,'--repo',repo,'--target',os.environ['GITHUB_SHA'],'--draft','--title','Kali MCP Sandbox '+v,'--notes',notes,*[str(p) for p in pathlib.Path('release').iterdir()]],check=True)
           subprocess.run(['gh','release','edit',tag,'--repo',repo,'--draft=false','--latest'],check=True)
