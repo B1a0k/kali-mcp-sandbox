@@ -121,14 +121,32 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: runtimes
-          path: release
-      - uses: actions/download-artifact@v4
-        with:
-          name: image-${{ matrix.arch }}
-          path: release
+      - name: Download release inputs with retry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_ARTIFACT: image-${{ matrix.arch }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          foreach ($artifact in @('runtimes', $env:IMAGE_ARTIFACT)) {
+            $downloaded = $false
+            for ($attempt = 1; $attempt -le 6; $attempt++) {
+              gh run download $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY --name $artifact --dir release
+              if ($LASTEXITCODE -eq 0) {
+                $downloaded = $true
+                break
+              }
+              if ($attempt -lt 6) {
+                $delay = [Math]::Min(60, 5 * [Math]::Pow(2, $attempt - 1))
+                Write-Warning "Artifact $artifact download attempt $attempt failed; retrying in $delay seconds"
+                Start-Sleep -Seconds $delay
+              }
+            }
+            if (-not $downloaded) {
+              throw "Unable to download artifact $artifact after 6 attempts"
+            }
+          }
       - env:
           VERSION: ${{ inputs.version }}
           ARCH: ${{ matrix.arch }}
