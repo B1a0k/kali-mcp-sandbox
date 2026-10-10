@@ -50,7 +50,6 @@ jobs:
     needs: plan
     permissions:
       contents: read
-      packages: write
     strategy:
       matrix: ${{ fromJSON(needs.plan.outputs.images) }}
     runs-on: ${{ matrix.runner }}
@@ -62,7 +61,6 @@ jobs:
           VERSION: ${{ inputs.version }}
           BASE: ${{ inputs.kali_base }}
           ARCH: ${{ matrix.arch }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir release source-release
           python scripts/service_bundle.py --output release/guest-service.py --version "$VERSION"
@@ -74,10 +72,6 @@ jobs:
           mkdir sources
           docker run --rm --user 0:0 --cpus 2 --memory 1g -v "$PWD/sources:/sources" -v "$PWD/scripts/collect_sources.py:/collect.py:ro" --entrypoint python3 "kali-mcp-sandbox:$VERSION-$ARCH" /collect.py
           tar -czf "source-release/kali-sources-$ARCH.tar.gz" -C sources .
-          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          repository="${GITHUB_REPOSITORY,,}"
-          docker tag "kali-mcp-sandbox:$VERSION-$ARCH" "ghcr.io/$repository:candidate-$ARCH"
-          docker push "ghcr.io/$repository:candidate-$ARCH"
       - uses: actions/upload-artifact@v4
         with:
           name: image-${{ matrix.arch }}
@@ -129,12 +123,12 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
-      packages: read
     steps:
       - uses: actions/checkout@v4
       - name: Download release inputs with resume and retry
         env:
           GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -150,7 +144,7 @@ jobs:
             throw 'Unable to list workflow artifacts'
           }
           $artifacts = ($artifactsJson | ConvertFrom-Json).artifacts
-          foreach ($artifact in @('runtimes')) {
+          foreach ($artifact in @('runtimes', "image-$env:ARCH")) {
             $entry = $artifacts | Where-Object name -eq $artifact | Select-Object -First 1
             if (-not $entry) {
               throw "Workflow artifact $artifact was not found"
@@ -181,7 +175,6 @@ jobs:
           EXE: ${{ matrix.exe }}
           FW: ${{ matrix.fw }}
           PLATFORM: ${{ matrix.platform }}
-          CANDIDATE_IMAGE: ghcr.io/${{ github.repository }}:candidate-${{ matrix.arch }}
         shell: python
         run: |
           import os,pathlib,subprocess
@@ -190,7 +183,7 @@ jobs:
           log_path=pathlib.Path('release/smoke-'+os.environ['PLATFORM']+'.log')
           try:
               with log_path.open('w') as log:
-                  subprocess.run(['python','scripts/smoke.py','--msb',str(exe),'--firmware','release/'+os.environ['FW'],'--registry-image',os.environ['CANDIDATE_IMAGE'].lower(),'--service','release/guest-service.py'],stdout=log,stderr=subprocess.STDOUT,check=True)
+                  subprocess.run(['python','scripts/smoke.py','--msb',str(exe),'--firmware','release/'+os.environ['FW'],'--image','release/kali-core-'+os.environ['ARCH']+'.tar','--image-ref','kali-mcp-sandbox:'+os.environ['VERSION']+'-'+os.environ['ARCH'],'--service','release/guest-service.py'],stdout=log,stderr=subprocess.STDOUT,check=True)
           finally:
               if log_path.exists():
                   print(log_path.read_text(errors='replace'))
