@@ -4,7 +4,6 @@ import fcntl
 import logging
 from logging.handlers import RotatingFileHandler
 import signal
-import shutil
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "upstream"))
@@ -12,12 +11,7 @@ import server as upstream
 from flask import request, jsonify
 from waitress import serve
 from jobs import Jobs
-
-REQUIRED_TOOLS = (
-    "nmap", "gobuster", "dirb", "nikto", "sqlmap", "whatweb", "curl", "dig",
-    "openvpn", "smbclient", "smbexec", "impacket-smbexec", "proxychains4", "nxc", "smbmap",
-    "enum4linux-ng", "ldapsearch", "socat", "sshpass",
-)
+from capabilities import inventory
 
 # The API outlives individual stdio bridges; a new bridge may race a reconnect.
 state_dir = Path('/workspace/.jobs')
@@ -39,10 +33,7 @@ upstream.execute_command = lambda command: jobs.submit(command, request.headers.
 
 @upstream.app.get("/managed/health")
 def health():
-    missing = [tool for tool in REQUIRED_TOOLS if not shutil.which(tool)]
-    return jsonify({**jobs.health(), "ready": not missing, "missingTools": missing,
-                    "effectiveUid": os.geteuid(), "effectiveUser": "root" if os.geteuid() == 0 else str(os.geteuid()),
-                    "root": os.geteuid() == 0,
+    return jsonify({**jobs.health(), **inventory(),
                     "serviceVersion": (Path(__file__).with_name("version.txt").read_text().strip() if Path(__file__).with_name("version.txt").exists() else "bundled")})
 
 @upstream.app.post("/managed/read")

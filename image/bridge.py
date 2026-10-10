@@ -12,6 +12,9 @@ import client as upstream
 import requests
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from typing import Annotated, Literal
+from pydantic import Field
+from jobs import MAX_OUTPUT, MAX_WAIT_SECONDS
 
 TOOLS = {"nmap_scan": "nmap", "gobuster_scan": "gobuster", "dirb_scan": "dirb",
          "nikto_scan": "nikto", "sqlmap_scan": "sqlmap", "hydra_attack": "hydra",
@@ -40,7 +43,8 @@ class Client(upstream.KaliToolsClient):
     def safe_post(self, endpoint, json_data):
         response = self.session.post(f"{self.server_url}/{endpoint}", json=json_data,
                                      headers={"X-Request-Id": str(uuid.uuid4())}, timeout=10)
-        response.raise_for_status()
+        if not response.ok:
+            raise RuntimeError(f"{endpoint}: HTTP {response.status_code}: {response.text[:2048]}")
         return response.json()
 
     def ready(self):
@@ -78,11 +82,14 @@ def build_server(client):
     @register("environment_health", True)
     def environment_health() -> dict:
         """Report active jobs, installed tools and execution identity. Commands run as root inside the isolated microVM; sudo is unnecessary. Query after reconnect and never blindly replay a command."""
-        return {**client.ready(), "tools": [binary for binary in TOOLS.values() if shutil.which(binary)],
-                "network": "TCP connect/HTTP/DNS and TUN-based VPN when the runtime exposes /dev/net/tun; host access remains isolated"}
+        return {**client.ready(), "mcpWrappers": [name for name, binary in TOOLS.items() if shutil.which(binary)],
+                "execution": {"workingDirectory": "/workspace", "interactiveStdin": False,
+                              "maxConcurrentJobs": 2, "maxCommandSeconds": 3600,
+                              "maxOutputBytesPerStream": MAX_OUTPUT, "maxReadWaitSeconds": MAX_WAIT_SECONDS,
+                              "maxFileBytes": 256 * 1024 * 1024}}
 
     @register("job_read", True)
-    def job_read(job_id: str, cursor: int = 0, stream: str = "stdout", wait_seconds: int = 5) -> dict:
+    def job_read(job_id: Annotated[str, Field(pattern="^[0-9a-f]{32}$")], cursor: Annotated[int, Field(ge=0, le=MAX_OUTPUT)] = 0, stream: Literal["stdout", "stderr"] = "stdout", wait_seconds: Annotated[int, Field(ge=0, le=MAX_WAIT_SECONDS)] = MAX_WAIT_SECONDS) -> dict:
         """Read up to 16 KiB and the real job state. Use nextCursor; wait 0–5 seconds for new data or completion. Keep the default wait to avoid tight polling. Accepted is not success."""
         return client.safe_post("managed/read", {"job_id": job_id, "cursor": cursor, "stream": stream, "wait_seconds": wait_seconds})
 
@@ -92,8 +99,8 @@ def build_server(client):
         return client.safe_post("managed/cancel", {"job_id": job_id})
 
     @register("execute_command")
-    def execute_command(command: str, request_id: str, timeout: int = 1800) -> dict:
-        """Execute as root inside the isolated Kali microVM at /workspace, never on the host. Do not use sudo. Use a unique stable request_id for this operation; retries with the same ID do not rerun it. Returns jobId; inspect job_read to completion. Timeout 1–3600 seconds."""
+    def execute_command(command: str, request_id: str, timeout: Annotated[int, Field(ge=1, le=3600)] = 1800) -> dict:
+        """Execute arbitrary shell commands as root inside the isolated Kali microVM at /workspace, never on the host. Supports reading/writing files, scripts, apt-get update/install, Python venv/pip and newly installed programs; no dedicated MCP wrapper is required. Use DEBIAN_FRONTEND=noninteractive for apt and python3 -m venv for pip packages. Do not use sudo. Changes persist on this disk across conversations. Use a unique stable request_id for this operation; retries with the same ID do not rerun it. Returns jobId; inspect stdout and stderr using job_read to completion and check exitCode. Timeout 1–3600 seconds; stdin is not interactive."""
         return client.safe_post("managed/submit", {"command": command, "request_id": request_id, "timeout": timeout})
 
     return mcp

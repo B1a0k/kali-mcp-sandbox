@@ -14,6 +14,7 @@ import uuid
 
 TERMINAL = {"succeeded", "failed", "cancelled", "timed_out", "interrupted"}
 MAX_OUTPUT = 4 * 1024 * 1024  # per stream, per job
+MAX_WAIT_SECONDS = 5
 
 
 class Jobs:
@@ -131,8 +132,8 @@ class Jobs:
             raise ValueError("Invalid job id")
         if stream not in ("stdout", "stderr") or not isinstance(cursor, int) or cursor < 0 or cursor > MAX_OUTPUT:
             raise ValueError("Invalid output cursor")
-        if not isinstance(wait_seconds, (int, float)) or not 0 <= wait_seconds <= 5:
-            raise ValueError("wait_seconds must be 0–5")
+        if isinstance(wait_seconds, bool) or not isinstance(wait_seconds, (int, float)) or not 0 <= wait_seconds <= MAX_WAIT_SECONDS:
+            raise ValueError(f"wait_seconds must be 0–{MAX_WAIT_SECONDS}; correct this argument before retrying job_read")
         path = self.root / f"{job_id}.{stream}"
         deadline = time.monotonic() + wait_seconds
         with self.changed:

@@ -4,7 +4,7 @@ import base64
 import json
 from pathlib import Path
 
-FILES = ('api.py', 'bridge.py', 'jobs.py', 'worker.py', 'upstream/client.py', 'upstream/server.py', 'upstream/LICENSE')
+FILES = ('api.py', 'bridge.py', 'jobs.py', 'worker.py', 'capabilities.py', 'upstream/client.py', 'upstream/server.py', 'upstream/LICENSE')
 INSTALLER = '''import base64, fcntl, hashlib, json, os, pathlib, py_compile, tempfile
 # Exclusive API lease: never replace service code while any API/job is running.
 state = pathlib.Path('/workspace/.jobs')

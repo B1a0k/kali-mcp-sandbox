@@ -66,7 +66,7 @@ jobs:
         run: |
           mkdir release source-release
           python scripts/service_bundle.py --output release/guest-service.py --version "$VERSION"
-          docker build --build-arg "KALI_BASE=$BASE" -t "kali-mcp-sandbox:$VERSION-$ARCH" image
+          docker build --build-arg "KALI_BASE=$BASE" --build-arg "IMAGE_VERSION=$VERSION" -t "kali-mcp-sandbox:$VERSION-$ARCH" image
           python scripts/docker_smoke.py --image "kali-mcp-sandbox:$VERSION-$ARCH" | tee "release/docker-smoke-$ARCH.log"
           python scripts/shared_smoke.py --image "kali-mcp-sandbox:$VERSION-$ARCH" | tee "release/shared-smoke-$ARCH.log"
           docker save "kali-mcp-sandbox:$VERSION-$ARCH" -o "release/kali-core-$ARCH.tar"

@@ -2,6 +2,7 @@ ARG KALI_BASE
 FROM ${KALI_BASE}
 ARG KALI_APT_MIRROR=http://kali.download/kali
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+ARG IMAGE_VERSION=development
 # The optional CA bundle is build-only (for HTTPS on the minimal base / enterprise proxy).
 # Packages remain authenticated by Kali's archive signing key; TLS verification is never disabled.
 RUN --mount=type=secret,id=apt_ca,target=/run/secrets/apt-ca,mode=0444 \
@@ -18,13 +19,14 @@ RUN --mount=type=secret,id=apt_ca,target=/run/secrets/apt-ca,mode=0444 \
     openvpn proxychains4 smbclient samba-common-bin ldap-utils krb5-user \
     python3-impacket impacket-scripts netexec enum4linux-ng smbmap hydra john \
     nmap gobuster dirb nikto sqlmap whatweb python3 python3-flask python3-mcp \
-    python3-requests python3-waitress \
+    python3-requests python3-waitress python3-pip python3-venv git \
     && ln -s /usr/bin/impacket-smbexec /usr/local/bin/smbexec \
     && dpkg-query -W > /usr/share/kali-mcp-package-versions.txt \
     && rm -rf /var/lib/apt/lists/* && rm -f /etc/apt/apt.conf.d/98kali-mcp-build-ca \
-    && mkdir -p /workspace && chmod 0700 /workspace
+    && mkdir -p /workspace && chmod 0700 /workspace \
+    && printf '%s\n' "$IMAGE_VERSION" > /etc/kali-mcp-image-version
 COPY upstream /opt/kali-mcp/upstream
-COPY jobs.py api.py bridge.py worker.py /opt/kali-mcp/
+COPY jobs.py api.py bridge.py worker.py capabilities.py /opt/kali-mcp/
 USER 0:0
 WORKDIR /workspace
 ENTRYPOINT ["python3", "/opt/kali-mcp/api.py"]

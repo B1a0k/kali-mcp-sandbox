@@ -36,6 +36,12 @@ def smoke(image):
         assert {'nmap_scan', 'gobuster_scan', 'job_read', 'job_cancel', 'execute_command'} <= names, names
         health = rpc.tool('environment_health', {})
         assert health['ready'] and health['root'] and health['effectiveUid'] == 0, health
+        assert health['toolchainReady'] and health['toolInventoryComplete'], health
+        assert health['imageVersion'] != 'legacy-unversioned', health
+        assert health['packageManagement']['installationAllowed'], health
+        assert health['packageManagement']['aptGet'] and health['packageManagement']['dpkg'], health
+        assert health['execution']['maxReadWaitSeconds'] == 5, health
+        assert health['network']['rawPacketSemantics'] is False, health
         command_check = 'id -u; for x in openvpn smbclient smbexec impacket-smbexec proxychains4 nxc smbmap enum4linux-ng ldapsearch socat sshpass; do command -v "$x" || exit 1; done'
         tool_job = rpc.tool('execute_command', {'command': command_check, 'request_id': 'root-toolchain', 'timeout': 30})['jobId']
         tool_result = rpc.tool('job_read', {'job_id': tool_job, 'wait_seconds': 5})

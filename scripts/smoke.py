@@ -107,6 +107,9 @@ def smoke(msb, firmware, image, image_ref, service=None, registry_image=None):
             assert "metasploit_run" not in names
             health = rpc.tool("environment_health", {})
             assert health["ready"] and health["root"] and health["effectiveUid"] == 0, health
+            assert health["toolchainReady"] and health["toolInventoryComplete"], health
+            assert health["packageManagement"]["installationAllowed"], health
+            assert health["execution"]["maxReadWaitSeconds"] == 5, health
             tool_check = rpc.tool("execute_command", {"command": "id -u; test -c /dev/net/tun; for x in openvpn smbclient smbexec impacket-smbexec proxychains4 nxc smbmap enum4linux-ng ldapsearch socat sshpass; do command -v \"$x\" || exit 1; done", "request_id": "root-toolchain", "timeout": 60})["jobId"]
             tool_output, tool_cursor = "", 0
             for _ in range(12):
